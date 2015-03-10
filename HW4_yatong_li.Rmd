@@ -46,7 +46,6 @@ file_list_unique <- lapply(file_list_unique, "[", gene_list,)
 matrix <- as.matrix(do.call(cbind, file_list_unique))
 
 ## Clean data
-
 pd_small <- pd[!grepl("T13_Day8",pd$title),]
 pd_small$Day <- sapply(strsplit(gsub(" \\[PBMC\\]", "", pd_small$title),"_"),"[",2)
 pd_small$subject <- sapply(strsplit(gsub(" \\[PBMC\\]", "", pd_small$title),"_"),"[",1)
