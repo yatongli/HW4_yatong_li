@@ -1,0 +1,131 @@
+---
+title: "BIOST 578 Homework 4"
+author: "Yatong Li"
+date: "March 9, 2015"
+output: html_document
+---
+  
+## Load the packages needed
+  
+```{r}
+source("http://bioconductor.org/biocLite.R")
+biocLite(c("GEOquery", "limma"))
+library(GEOquery)
+library(limma)
+library(pheatmap)
+library(GSEABase)
+```
+
+## 1. Download gds file
+
+```{r}
+gds.file <- getGEO("GSE45735", destdir="/Users/Yatong/Documents/Biostat-578-homework/HW4_yatong_li")
+gd <- gds.file[[1]]
+
+pd <- pData(gd)
+getGEOSuppFiles("GSE45735", makeDirectory=FALSE, baseDir = "/Users/Yatong/Documents/Biostat-578-homework/HW4_yatong_li/")
+
+# Note the regular expression to grep file names
+files <- list.files(path = "/Users/Yatong/Documents/Biostat-578-homework/HW4_yatong_li/", pattern = "GSE45735_T.*.gz", full.names = TRUE)
+
+# Read in gzip-compressed, tab-delimited files
+file_list <- lapply(files, read.table, sep='\t', header=TRUE)
+
+# Subset to only those rows where Gene contains only non-space characters
+# This addresses problems with T14 file containing 28 invalid rows at end of file
+file_list <- lapply(file_list, function(file_list)subset(file_list, grepl('^[^[:space:]]+$', Gene)))
+
+# Remove duplicated rows
+file_list_unique <- lapply(file_list, function(x){x<-x[!duplicated(x$Gene),]; 
+                                                  x <- x[order(x$Gene),]; 
+                                                  rownames(x) <- x$Gene;
+                                                  x[,-1]})
+# Take the intersection of all genes
+gene_list <- Reduce(intersect, lapply(file_list_unique, rownames))
+file_list_unique <- lapply(file_list_unique, "[", gene_list,)
+matrix <- as.matrix(do.call(cbind, file_list_unique))
+
+## Clean data
+
+pd_small <- pd[!grepl("T13_Day8",pd$title),]
+pd_small$Day <- sapply(strsplit(gsub(" \\[PBMC\\]", "", pd_small$title),"_"),"[",2)
+pd_small$subject <- sapply(strsplit(gsub(" \\[PBMC\\]", "", pd_small$title),"_"),"[",1)
+colnames(matrix) <- rownames(pd_small)
+```
+
+## 2. Using Voom + Limma
+
+Create eSet
+```{r}
+# Note that I add one to the count
+new_set <- ExpressionSet(assayData = matrix+1)
+pData(new_set) <- pd_small
+```
+
+Set-up design matrix to estimate weights:
+
+```{r}
+design <- model.matrix(~subject+Day, new_set)
+new_set_voom <- voom(new_set,design = design)
+
+lm <- lmFit(new_set_voom, design)
+eb <- eBayes(lm)
+
+genes.days <- vector("list", length = 10)
+for(i in 1:10) {
+  coef <- paste0("DayDay", i)
+  genes.days[[i]] <- topTable(eb, coef = coef, number=Inf)
+}
+
+## Making heatmap
+logFC <- matrix(, nrow=length(genes.days[[1]]$logFC), ncol=10)
+p.values <- logFC
+
+for (i in 1:10) {
+  logFC[,i] <- genes.days[[i]]$logFC
+  p.values[,i] <- genes.days[[i]]$adj.P.Val
+}
+
+rownames(logFC) <- rownames(genes.days[[1]])
+logFC.small <- logFC[rowMin(p.values)<0.01,]
+pheatmap(logFC.small)
+# heatmap(logFC.small)
+```
+
+
+## 3. GSEA analysis using camera and the MSigDB Reactome pathway gene signatures
+
+Convert the gene sets to gene indices
+
+```{r}
+c2_set <- getGmt("/Users/Yatong/Documents/Biostat-578-homework/HW4_yatong_li/c2.all.v4.0.symbols.gmt")
+gene_ids <- geneIds(c2_set)
+# <<<<<<< Updated upstream
+if (exists("ids2indices")) { 
+    sets_indices <- ids2indices(gene_ids, rownames(new_set))
+}
+if (exists("symbols2indices")) {
+    sets_indices <- symbols2indices(gene_ids, rownames(new_set))    
+}
+# sets_indices <- symbols2indices(gene_ids, rownames(new_set))
+
+res <- vector("list",length = 10)
+for(i in 1:10)
+  {
+  contrast <- paste0("DayDay",i)
+  cont_matrix <- makeContrasts(contrast, levels=design)
+  res[[i]] <- camera(new_set_voom, sets_indices, design=design, contrast=cont_matrix, sort=FALSE)
+}
+
+PValue <- sapply(res, function(x){ifelse(x$Direction=="Up", -10*log10(x$PValue), 10*log10(x$PValue))})
+rownames(PValue) <- rownames(res[[1]])
+rownames(PValue) <- lapply(rownames(PValue), function(x) {unlist(strsplit(as.character(x),"_"))[1]})
+PValue_max <- rowMax(abs(PValue))
+PValue_small <- PValue[PValue_max>30, ]
+anno <- data.frame(Time=paste0("Day",1:10))
+rownames(anno) <- colnames(PValue_small)  <- paste0("Day",1:10)
+
+pheatmap(PValue_small, cluster_cols=FALSE)
+```
+
+
