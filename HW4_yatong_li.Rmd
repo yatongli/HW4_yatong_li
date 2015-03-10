@@ -16,7 +16,7 @@ library(pheatmap)
 library(GSEABase)
 ```
 
-## 1. Download gds file
+## 1. Download gds file and clean data
 
 ```{r}
 gds.file <- getGEO("GSE45735", destdir="/Users/Yatong/Documents/Biostat-578-homework/HW4_yatong_li")
@@ -76,8 +76,10 @@ for(i in 1:10) {
   coef <- paste0("DayDay", i)
   genes.days[[i]] <- topTable(eb, coef = coef, number=Inf)
 }
+```
 
-## Making heatmap
+Making heatmap
+```{r}
 logFC <- matrix(, nrow=length(genes.days[[1]]$logFC), ncol=10)
 p.values <- logFC
 
@@ -96,7 +98,6 @@ pheatmap(logFC.small)
 ## 3. GSEA analysis using camera and the MSigDB Reactome pathway gene signatures
 
 Convert the gene sets to gene indices
-
 ```{r}
 c2_set <- getGmt("/Users/Yatong/Documents/Biostat-578-homework/HW4_yatong_li/c2.all.v4.0.symbols.gmt")
 gene_ids <- geneIds(c2_set)
@@ -116,7 +117,10 @@ for(i in 1:10)
   cont_matrix <- makeContrasts(contrast, levels=design)
   res[[i]] <- camera(new_set_voom, sets_indices, design=design, contrast=cont_matrix, sort=FALSE)
 }
+```
 
+Making heatmap
+```{r}
 PValue <- sapply(res, function(x){ifelse(x$Direction=="Up", -10*log10(x$PValue), 10*log10(x$PValue))})
 rownames(PValue) <- rownames(res[[1]])
 rownames(PValue) <- lapply(rownames(PValue), function(x) {unlist(strsplit(as.character(x),"_"))[1]})
